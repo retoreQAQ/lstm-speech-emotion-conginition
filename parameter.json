@@ -1,0 +1,161 @@
+[
+    {
+        "n_epoch": 50,
+        "lr": 5e-05,
+        "lstm_dropout": 0.5,
+        "this_a_comment_3": "mfcc spec mfcc_13 fbank plp",
+        "feature": "plp",
+        "if_early_stopping": true,
+        "es_threshold": 0.63,
+        "scatter_random": true,
+        "mfcc": {
+            "n_feature": 39,
+            "hidden_size": 117,
+            "batch_size_train": 32,
+            "batch_size_val": 32,
+            "if_norm": false
+        },
+        "mfcc_13": {
+            "n_feature": 13,
+            "hidden_size": 64,
+            "batch_size_train": 16,
+            "batch_size_val": 16,
+            "if_norm": false
+        },
+        "fbank": {
+            "n_feature": 23,
+            "hidden_size": 48,
+            "batch_size_train": 16,
+            "batch_size_val": 16,
+            "if_norm": true
+        },
+        "spec": {
+            "n_feature": 257,
+            "hidden_size": 512,
+            "batch_size_train": 16,
+            "batch_size_val": 16,
+            "if_norm": true
+        },
+        "plp": {
+            "n_feature": 39,
+            "hidden_size": 64,
+            "batch_size_train": 32,
+            "batch_size_val": 31,
+            "if_norm": false
+        },
+        "num_time_steps": 4482,
+        "lstm_num_layers": 2,
+        "l2_lambda": 0,
+        "if_sigmoid": true,
+        "this_a_comment_1": "MSE cross",
+        "loss_name": "MSE",
+        "this_a_comment_2": "sgd adam",
+        "optimizer_name": "adam"
+    },
+    {
+        "n_epoch": 50,
+        "lr": 0.0001,
+        "lstm_dropout": 0.5,
+        "this_a_comment_3": "mfcc spec mfcc_13 fbank plp",
+        "feature": "plp",
+        "if_early_stopping": true,
+        "es_threshold": 0.63,
+        "scatter_random": true,
+        "mfcc": {
+            "n_feature": 39,
+            "hidden_size": 117,
+            "batch_size_train": 32,
+            "batch_size_val": 32,
+            "if_norm": false
+        },
+        "mfcc_13": {
+            "n_feature": 13,
+            "hidden_size": 64,
+            "batch_size_train": 16,
+            "batch_size_val": 16,
+            "if_norm": false
+        },
+        "fbank": {
+            "n_feature": 23,
+            "hidden_size": 48,
+            "batch_size_train": 16,
+            "batch_size_val": 16,
+            "if_norm": true
+        },
+        "spec": {
+            "n_feature": 257,
+            "hidden_size": 512,
+            "batch_size_train": 16,
+            "batch_size_val": 16,
+            "if_norm": true
+        },
+        "plp": {
+            "n_feature": 39,
+            "hidden_size": 64,
+            "batch_size_train": 32,
+            "batch_size_val": 31,
+            "if_norm": false
+        },
+        "num_time_steps": 4482,
+        "lstm_num_layers": 2,
+        "l2_lambda": 0,
+        "if_sigmoid": true,
+        "this_a_comment_1": "MSE cross",
+        "loss_name": "MSE",
+        "this_a_comment_2": "sgd adam",
+        "optimizer_name": "adam"
+    },
+    {
+        "n_epoch": 70,
+        "lr": 1e-05,
+        "lstm_dropout": 0.5,
+        "this_a_comment_3": "mfcc spec mfcc_13 fbank plp",
+        "feature": "plp",
+        "if_early_stopping": true,
+        "es_threshold": 0.63,
+        "scatter_random": true,
+        "mfcc": {
+            "n_feature": 39,
+            "hidden_size": 117,
+            "batch_size_train": 32,
+            "batch_size_val": 32,
+            "if_norm": false
+        },
+        "mfcc_13": {
+            "n_feature": 13,
+            "hidden_size": 64,
+            "batch_size_train": 16,
+            "batch_size_val": 16,
+            "if_norm": false
+        },
+        "fbank": {
+            "n_feature": 23,
+            "hidden_size": 48,
+            "batch_size_train": 16,
+            "batch_size_val": 16,
+            "if_norm": true
+        },
+        "spec": {
+            "n_feature": 257,
+            "hidden_size": 512,
+            "batch_size_train": 16,
+            "batch_size_val": 16,
+            "if_norm": true
+        },
+        "plp": {
+            "n_feature": 39,
+            "hidden_size": 64,
+            "batch_size_train": 32,
+            "batch_size_val": 31,
+            "if_norm": false
+        },
+        "num_time_steps": 4482,
+        "lstm_num_layers": 2,
+        "l2_lambda": 0,
+        "if_sigmoid": true,
+        "this_a_comment_1": "MSE cross",
+        "loss_name": "MSE",
+        "this_a_comment_2": "sgd adam",
+        "optimizer_name": "adam"
+    }
+]
