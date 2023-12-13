@@ -61,28 +61,38 @@ class MyDataset(Dataset):
         return feat_label_length_list
     
 class MyLSTM(nn.Module):
-    def __init__(self, n_feature, hidden_size, lstm_num_layers, lstm_dropout, l2_lambda, if_sigmoid):
+    def __init__(self, n_feature, hidden_size, lstm_num_layers, lstm_dropout, l2_lambda, if_sigmoid, if_bi):
         super(MyLSTM, self).__init__()
         self.bn = nn.BatchNorm1d(n_feature).cuda()
-        self.lstm = nn.LSTM(input_size=n_feature, hidden_size=hidden_size, num_layers=lstm_num_layers, batch_first=True, dropout=lstm_dropout, bidirectional=True).cuda()
-        self.linear_1 = nn.Linear(in_features=hidden_size, out_features=4).cuda()
+        self.lstm = nn.LSTM(input_size=n_feature, hidden_size=hidden_size, num_layers=lstm_num_layers, batch_first=True, dropout=lstm_dropout, bidirectional=if_bi).cuda()
+        self.linear_type = nn.Linear(in_features=hidden_size, out_features=6).cuda()
+        self.linear_level = nn.Linear(in_features=hidden_size, out_features=4).cuda()
+        self.linear_type_bi = nn.Linear(in_features=hidden_size*2, out_features=6).cuda()
+        self.linear_level_bi = nn.Linear(in_features=hidden_size*2, out_features=4).cuda()
         self.l2_lambda = l2_lambda
         self.if_sigmoid = if_sigmoid
+        self.if_bi = if_bi
     
     def forward(self, inputs, lengths):
         inputs = inputs.to(torch.float).cuda()
         inputs = inputs.permute(0, 2, 1)
         inputs = self.bn(inputs)
         inputs = inputs.permute(0, 2, 1)
-        # feats = inputs
-        # 打包
         feats = nn.utils.rnn.pack_padded_sequence(inputs, lengths, batch_first=True, enforce_sorted=False)
+        # the shape of h_last: (num_layers * num_directions, batch_size, hidden_size)
         outputs, (h_last, c_last) = self.lstm(feats)
-        # 解包
-        # output, _ = nn.utils.rnn.pad_packed_sequence(packed_output, batch_first=True)
-        # output = self.fc(output[:, -1, :])
-        output = self.linear_1(h_last[-1])
-        output = torch.mean(output, dim=-1)
+        # when single direction, h_last[-1] is output of the last layer.
+        # but when bidirection is true, maybe need to use h_last[-1] and h_last[-2] which from different directions.
+        # combine them and change the layer with shape of input is (hidden_size * 2)
+        h_last_combined = torch.cat((h_last[-1], h_last[-2]), dim=1)
+        if self.if_bi:
+            emo_type = self.linear_type_bi(h_last_combined)
+            emo_level = self.linear_level_bi(h_last_combined)
+        else:
+            emo_type = self.linear_type(h_last[-1])
+            emo_level = self.linear_level(h_last[-1])
+        emo_type = torch.mean(output, dim=-1)
+        
         if self.if_sigmoid:
             output = torch.sigmoid(output) * 5
         return output
@@ -309,7 +319,7 @@ def main(args, parameter_dict):
     data_loader_val = DataLoader(dataset_val, batch_size=batch_size_val, shuffle=False, num_workers=num_workers, drop_last=False)
         
     # 实例化模型
-    mylstm = MyLSTM(n_feature, hidden_size, lstm_num_layers, lstm_dropout, l2_lambda, if_sigmoid).cuda()
+    mylstm = MyLSTM(n_feature, hidden_size, lstm_num_layers, lstm_dropout, l2_lambda, if_sigmoid, if_bi=True).cuda()
         
     # 定义损失函数
     # 对批次损失值默认求平均，可以改成sum求和
