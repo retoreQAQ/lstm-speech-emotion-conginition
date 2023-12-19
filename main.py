@@ -56,21 +56,20 @@ class MyDataset(Dataset):
 class MyLSTM(nn.Module):
     def __init__(self, n_feature, hidden_size, lstm_num_layers, lstm_dropout, l2_lambda, if_bi, only_type):
         super(MyLSTM, self).__init__()
-        self.bn = nn.BatchNorm1d(n_feature).cuda()
-        self.lstm = nn.LSTM(input_size=n_feature, hidden_size=hidden_size, num_layers=lstm_num_layers, batch_first=True, dropout=lstm_dropout, bidirectional=if_bi).cuda()
+        self.bn = nn.BatchNorm1d(n_feature)
+        self.lstm = nn.LSTM(input_size=n_feature, hidden_size=hidden_size, num_layers=lstm_num_layers, batch_first=True, dropout=lstm_dropout, bidirectional=if_bi)
         # out_features should be the number of label types
         self.if_bi = if_bi
         if self.if_bi is True:
             hidden_size = hidden_size * 2
         self.only_type = only_type
-        if self.only_type is True:
-            out_features_n = 6
-        self.linear_type = nn.Linear(in_features=hidden_size, out_features=5).cuda()
-        self.linear_level = nn.Linear(in_features=hidden_size, out_features=3).cuda()
+        out_features_n = 6 if only_type is True else 5
+        self.linear_type = nn.Linear(in_features=hidden_size, out_features=out_features_n)
+        self.linear_level = nn.Linear(in_features=hidden_size, out_features=3)
         self.l2_lambda = l2_lambda
     
     def forward(self, inputs, lengths):
-        inputs = inputs.to(torch.float).cuda()
+        # input shape: (batch_size, num_time_steps, n_feature)
         inputs = inputs.permute(0, 2, 1)
         inputs = self.bn(inputs)
         inputs = inputs.permute(0, 2, 1)
@@ -80,20 +79,11 @@ class MyLSTM(nn.Module):
         # when single direction, h_last[-1] is output of the last layer.
         # but when bidirection is true, maybe need to use h_last[-1] and h_last[-2] which from different directions.
         # combine them and change the layer with shape of input is (hidden_size * 2)
-        emo_level, emo_level_int = None, None
-        h = h_last[-1]
-        if self.if_bi is True:
-            h = torch.cat((h_last[-1], h_last[-2]), dim=1)
+        h = h_last[-1] if self.if_bi is False else torch.cat((h_last[-1], h_last[-2]), dim=1)
         emo_type = self.linear_type(h)
-        if self.only_type is False:
-            emo_level = self.linear_level(h)
-        # use softmax layer to predict the type
-        # nitice: if use CrossEntropyLoss, then don't need to add the softmax after linear.
-            emo_level_int = nn.functional.softmax(emo_level, dim=-1)
-            emo_level_int = torch.argmax(emo_level_int, dim=-1)
-        emo_type_int = nn.functional.softmax(emo_type, dim=-1)
-        emo_type_int = torch.argmax(emo_type_int, dim=-1)
-        return emo_type, emo_type_int, emo_level, emo_level_int
+        emo_level = self.linear_level(h)
+
+        return emo_type, emo_level
 
     def l2_regularization(self):
         l2_reg = torch.tensor(0.0).cuda()
@@ -101,6 +91,66 @@ class MyLSTM(nn.Module):
             if 'weight' in name:
                 l2_reg += torch.norm(param, p=2)
         return self.l2_lambda * l2_reg
+    
+class DilatedConvolution(nn.Module):
+    def __init__(self, n_feature, batch_size, num_time_steps, l2_lambda):
+        super(DilatedConvolution, self).__init__()
+        self.conv1 = nn.Conv1d(in_channels=n_feature, out_channels=64, kernel_size=3, dilation=1)
+        self.bn1 = nn.BatchNorm1d(64)
+        self.relu = nn.ReLU()
+        self.pool = nn.MaxPool1d(2)
+        self.conv2 = nn.Conv1d(in_channels=64, out_channels=128, kernel_size=3, dilation=2)
+        self.bn2 = nn.BatchNorm1d(128)
+        
+        # 动态计算全连接层的输入维度
+        input_shape = (batch_size, n_feature, num_time_steps)  # 假设的输入尺寸
+        conv_output_size = self._get_conv_output(input_shape)
+        
+        # for type
+        self.fc1 = nn.Linear(conv_output_size, 64)
+        self.dropout = nn.Dropout(0.5)
+        self.fc2 = nn.Linear(64, 5)
+        # for level
+        self.fc3 = nn.Linear(conv_output_size, 64)
+        self.dropout = nn.Dropout(0.5)
+        self.fc4 = nn.Linear(64, 3)
+        
+        self.l2_lambda = l2_lambda
+        
+    def _get_conv_output(self, shape):
+        with torch.no_grad():
+            input = torch.rand(shape) # (32, 23, 499)
+            output = self.pool(self.relu(self.bn1(self.conv1(input)))) # (32, 64, 248)
+            output = self.pool(self.relu(self.bn2(self.conv2(output))))  # # (32, 128, 122)
+            return torch.flatten(output, 1).size(1)
+    
+    def l2_regularization(self):
+        l2_reg = torch.tensor(0.0).cuda()
+        for name, param in self.named_parameters():
+            if 'weight' in name:
+                l2_reg += torch.norm(param, p=2)
+        return self.l2_lambda * l2_reg
+    
+    def forward(self, inputs, lengths):
+        # input shape of conv should be like (batch_size, n_feature, num_time_steps), which is diferent from lstm so permute it.
+        x = inputs.permute(0, 2, 1)
+        x = self.conv1(x)
+        x = self.bn1(x)
+        x = self.relu(x)
+        x = self.pool(x)
+        x = self.conv2(x)
+        x = self.bn2(x)
+        x = self.relu(x)
+        x = self.pool(x)
+        # Flatten the output for the fully connected layer
+        x = torch.flatten(x, 1)
+        x_type = self.fc1(x)
+        x_type = self.dropout(x_type)
+        x_type = self.fc2(x_type)
+        x_level = self.fc3(x)
+        x_level = self.dropout(x_level)
+        x_level = self.fc4(x_level)
+        return x_type, x_level
 
 class Logger(object):
     def __init__(self, filename='log.txt', stream=sys.stdout):
@@ -212,20 +262,22 @@ def encode_level_label(label):
         label_int = 2
     return label_int
     
-def run(model, data_loader, optimizer, loss_fun, train=True):
+def run(model, data_loader, optimizer, loss_fun, type_only, train=True):
     if train:
         model.train()
     else:
         model.eval()
+    # init
     loss_all, loss_type_all, loss_level_all, loss_level = 0.0, 0.0, 0.0, 0.0
     types_int_all = torch.tensor([]).cuda()
     levels_int_all = torch.tensor([]).cuda()
     labels_type_all = torch.tensor([]).cuda()
     labels_level_all = torch.tensor([]).cuda()
+    
     for data in data_loader:
         # feats shape为(batch_size, num_time_steps, n_feature),labels shape is (batch_size)
         feats, uttids, lengths = data
-        # 这里对ark文件的uttid处理，格式为 uttname-label1-label2-label3, 得到目标标签
+        # because labels are included in the uttid from ark files so that process it correctly
         labels_type_str = [uttid.split('_')[2] for uttid in uttids]
         labels_level_str = [uttid.split('_')[3] for uttid in uttids]
         # labels_type and labels_level is int
@@ -234,33 +286,36 @@ def run(model, data_loader, optimizer, loss_fun, train=True):
         labels_level = [encode_level_label(label_str) for label_str in labels_level_str]
         labels_level = torch.tensor(labels_level).cuda()
         if train:
-            # 将上一步得到的梯度清零
+            # zero the gradients of last step
             optimizer.zero_grad()
+            
         # types and levels is for the cross-loss witch accept the original output of linear layer
         # int is for comparing predictions and ground-truth to evaluate model
-        types, types_int, levels, levels_int = model(feats.cuda(), lengths)
-        # scores shape为(batch_size, 1),但是labels shape为(batch_size)，squeeze去维
-        # 如果最后一批刚好剩下一个，也就是形状为（1），就还原
-        # types = torch.squeeze(types)
-        # if types.shape == ():
-        #     types = types.reshape(1)
+        feats = feats.to(torch.float).cuda()
+        types, levels = model(feats.cuda(), lengths)
+        
+        # use softmax layer to predict the type and level
+        
+        types_int = torch.argmax(nn.functional.softmax(types, dim=-1), dim=-1)
+        levels_int = torch.argmax(nn.functional.softmax(levels, dim=-1), dim=-1) if type_only is False else None
+        
+        # compute loss
+        # nitice: if use CrossEntropyLoss, then just use outputs of linear layer instead of softmax.
         loss_type = loss_fun(types, labels_type) + model.l2_regularization()
-        if levels is not None and levels_int is not None:
-            levels = torch.squeeze(levels)
-            if levels.shape == ():
-                levels = levels.reshape(1)
-            loss_level = loss_fun(levels, labels_level) + model.l2_regularization()
+        loss_level = loss_fun(levels, labels_level) + model.l2_regularization() if type_only is False else 0.0
         # set a method to compute the total loss, sum or add weights.
         loss = loss_type + loss_level
+        
         if train:
             loss.backward()
             optimizer.step()
+        
+        # for evaluation and showing
         loss_all += loss
         loss_type_all += loss_type
         loss_level_all += loss_level
-        
         types_int_all = torch.cat((types_int_all, types_int), dim=0)
-        levels_int_all = torch.cat((levels_int_all, levels_int), dim=0)
+        levels_int_all = torch.cat((levels_int_all, levels_int), dim=0) if type_only is False else None
         labels_type_all = torch.cat((labels_type_all, labels_type), dim=0)
         labels_level_all = torch.cat((labels_level_all, labels_level), dim=0)
     return loss_type_all, loss_level_all, loss_all, types_int_all, labels_type_all, levels_int_all, labels_level_all
@@ -277,6 +332,10 @@ def adjust_lr(optimizer, step_num, argu=None):
         learning_rate = 0.000003
     for param_group in optimizer.param_groups:
         param_group['lr'] = learning_rate
+        
+def wrong_parameter(x):
+    print(f'wrong parameter: {x}')
+    exit(1)
 
     
 
@@ -292,6 +351,8 @@ def main(args, parameter_dict):
     if_only_type = parameter_dict["only_type"]
     # if use bi-lstm
     if_bi = parameter_dict["if_bi"]
+    # set which model to use
+    model_type = parameter_dict["model_type"]
     # number of epoch
     n_epoch = parameter_dict["n_epoch"]
     # number of warm-up epoch
@@ -351,18 +412,29 @@ def main(args, parameter_dict):
     data_loader_val = DataLoader(dataset_val, batch_size=batch_size_val, shuffle=False, num_workers=num_workers, drop_last=False)
         
     # 实例化模型
-    mylstm = MyLSTM(n_feature, hidden_size, lstm_num_layers, lstm_dropout, l2_lambda, if_bi, if_only_type).cuda()
+    if model_type == 'lstm':
+        model = MyLSTM(n_feature, hidden_size, lstm_num_layers, lstm_dropout, l2_lambda, if_bi, if_only_type).cuda()
+    elif model_type == 'conv':
+        model = DilatedConvolution(n_feature, batch_size_train, num_time_steps, l2_lambda).cuda()
+    else:
+        wrong_parameter(model_type)
         
     # 定义损失函数
     # 对批次损失值默认求平均，可以改成sum求和
-    loss_fun = nn.MSELoss(reduction='mean')
-    if loss_name == 'cross':
+    if loss_name == 'mse':
+        loss_fun = nn.MSELoss(reduction='mean').cuda()
+    elif loss_name == 'cross':
         loss_fun = nn.CrossEntropyLoss().cuda()
+    else:
+        wrong_parameter(loss_name)
         
     # 定义优化器
-    optimizer = torch.optim.Adam(mylstm.parameters(), lr=lr)
-    if optimizer_name == 'sgd':
-        optimizer = torch.optim.SGD(mylstm.parameters(), lr=lr)
+    if optimizer_name == 'adam':
+        optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+    elif optimizer_name == 'sgd':
+        optimizer = torch.optim.SGD(model.parameters(), lr=lr)
+    else:
+        wrong_parameter(optimizer_name)
 
     # 开始训练
     loss_type_train_list = []
@@ -377,14 +449,14 @@ def main(args, parameter_dict):
         adjust_lr(optimizer, epoch)
         # train
         print(f'epoch: {epoch+1}\nThe performance in the dataset_train:')
-        loss_type_train, loss_level_train, loss_train, types_int_all, labels_type_all, levels_int_all, labels_level_all = run(mylstm, data_loader_train, optimizer, loss_fun)
+        loss_type_train, loss_level_train, loss_train, types_int_all, labels_type_all, levels_int_all, labels_level_all = run(model, data_loader_train, optimizer, loss_fun, if_only_type)
         # draw loss curve
         loss_train_list.append(loss_train.item())
         loss_type_train_list.append(loss_type_train.item())
         loss_level_train_list.append(loss_level_train.item())
         print(f'The loss of train: {loss_train:.2f}')
         # val
-        loss_type_val, loss_level_val, loss_val, types_int_all, labels_type_all, levels_int_all, labels_level_all = run(mylstm, data_loader_val, optimizer, loss_fun)
+        loss_type_val, loss_level_val, loss_val, types_int_all, labels_type_all, levels_int_all, labels_level_all = run(model, data_loader_val, optimizer, loss_fun, if_only_type)
         loss_val_list.append(loss_val.item())
         loss_type_val_list.append(loss_type_val.item())
         loss_level_val_list.append(loss_level_val.item())
@@ -394,7 +466,7 @@ def main(args, parameter_dict):
             pass
     
     # save model
-    torch.save(mylstm.state_dict(), os.path.join(log_folder, 'model.pth'))
+    torch.save(model.state_dict(), os.path.join(log_folder, 'model.pth'))
     
     # visualize the evaluation
     if if_only_type is False:
@@ -456,5 +528,5 @@ if __name__ == "__main__":
             # new_logger_folder = f'{log_folder}_{pcc:.3f}'
             # os.rename(log_folder, new_logger_folder)
     else:
-        print(f'parameter_group.json error:\n{parameter_group}')
+        print(f'parameter.json is not a list!')
         exit(1)

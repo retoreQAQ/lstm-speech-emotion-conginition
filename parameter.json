@@ -1,6 +1,8 @@
 [
     {
         "only_type": false,
+        "this_a_comment_0": "lstm conv",
+        "model_type": "conv",
         "n_epoch": 100,
         "lr": 5e-05,
         "lstm_dropout": 0.5,
